@@ -3,7 +3,7 @@
 const log = (message, isError = false) => console[isError ? 'error' : 'log'](message);
 
 const validateAudioData = (data) => {
-    if (!data.trimSettings || !data.projectSequences?.Sequence0?.ch0?.steps || data.projectSequences.Sequence0.ch0.steps.length !== 64 || !data.projectBPM) {
+    if (!data.trimSettings || !data.projectSequences || !data.projectBPM) {
         throw new Error('Invalid or missing data in JSON');
     }
 };
@@ -15,10 +15,40 @@ const readFileAsJSON = (file) => new Promise((resolve, reject) => {
     reader.readAsText(file);
 });
 
-const analyzeJSONFormat = (data) => {
-    // Implement analysis of JSON structure and content here
-    log('Analyzing JSON format and content:', false);
-    // Detailed analysis logic can be implemented here
+const countNamedSequences = (projectSequences) => {
+    return Object.keys(projectSequences).filter(key => key.startsWith('Sequence')).length;
+};
+
+const getTotalChannelsWithUrls = (projectURLs) => {
+    return projectURLs.filter(url => url.trim() !== "").length;
+};
+
+const logActiveStepArrays = (projectSequences) => {
+    Object.entries(projectSequences).forEach(([sequenceName, channels]) => {
+        Object.entries(channels).forEach(([channelName, channelData]) => {
+            const steps = channelData.steps;
+            if (steps && steps.includes(true)) {
+                // Collect indices of true values
+                const trueIndices = steps.map((step, index) => step ? index : null).filter(index => index !== null);
+                // Log the sequence, channel, and true indices
+                log(`${sequenceName}, ${channelName}, steps: ${trueIndices.join(', ')}`);
+            }
+        });
+    });
+};
+
+
+
+const logSummaryDetails = (data) => {
+    const { projectName, projectBPM, projectSequences, projectURLs } = data;
+    const totalChannelsWithUrls = getTotalChannelsWithUrls(projectURLs);
+    const totalNamedSequences = countNamedSequences(projectSequences);
+
+    log(`This project is called - "${projectName}"`);
+    log(`The project's BPM is - ${projectBPM}`);
+    log(`Total number of channels with URLs - ${totalChannelsWithUrls}`);
+    log(`Total number of named sequences - ${totalNamedSequences}`);
+    logActiveStepArrays(projectSequences);
 };
 
 const processAndLoadAudio = async (file, loadAudioFile) => {
@@ -26,7 +56,7 @@ const processAndLoadAudio = async (file, loadAudioFile) => {
     try {
         const sequenceData = await readFileAsJSON(file);
         validateAudioData(sequenceData);
-        analyzeJSONFormat(sequenceData);
+        logSummaryDetails(sequenceData);
         return sequenceData;
     } catch (err) {
         log('Error processing file:', true);
