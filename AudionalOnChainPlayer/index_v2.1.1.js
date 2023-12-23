@@ -1,21 +1,18 @@
 // index_v2.1.1.js
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+if (!audioContext) {
+    alert('Web Audio API is not supported in this browser');
+}
+
 let trimSettings, BPM, sequenceData;
 const activeSources = new Set();
 let isLooping = true;
 let isStoppedManually = false;
 
-// Renamed to avoid conflicts with any pre-existing 'log' identifiers.
 const customLog = (message, isError = false) => {
     const logFunction = isError ? console.error : console.log;
     logFunction(message);
-};
-
-const checkAudioContextSupport = () => {
-    if (!audioContext) {
-        alert('Web Audio API is not supported in this browser');
-    }
 };
 
 const loadAudioFile = async (url) => {
@@ -26,7 +23,10 @@ const loadAudioFile = async (url) => {
     try {
         const response = await fetch(url);
         const arrayBuffer = await response.arrayBuffer();
-        return await audioContext.decodeAudioData(arrayBuffer);
+        // Compatibility check for older browsers
+        return new Promise((resolve, reject) => {
+            audioContext.decodeAudioData(arrayBuffer, resolve, reject);
+        });
     } catch (error) {
         customLog(`Error loading audio file: ${error}`, true);
         return null;
@@ -66,38 +66,34 @@ const handleSourceEnd = (source) => {
 };
 
 const schedulePlaybackForStep = (audioBuffer, trimSetting, stepIndex) => {
-  const playbackTime = stepIndex * calculateStepTime();
+    const playbackTime = stepIndex * calculateStepTime();
     createAndStartAudioSource(audioBuffer, trimSetting, playbackTime);
 };
 
 const playAudio = async () => {
     if (!sequenceData || !sequenceData.projectURLs || !sequenceData.projectSequences) {
-        return log("No valid sequence data available. Cannot play audio.", true);
+        return customLog("No valid sequence data available. Cannot play audio.", true);
     }
     const { projectURLs, projectSequences, projectBPM, trimSettings } = sequenceData;
     BPM = projectBPM; // Set global BPM
 
     stopAudio(); // Ensure any previous playback is stopped before starting new
 
-    // Load all audio buffers
-    const audioBuffers = await Promise.all(projectURLs.map(url => loadAudioFile(url)));
+    const audioBuffers = await Promise.all(projectURLs.map(loadAudioFile));
 
-    // Check if there is at least one valid audio buffer to play
     if (!audioBuffers.some(buffer => buffer)) {
-        return log("No valid audio data available for any channel. Cannot play audio.", true);
+        return customLog("No valid audio data available for any channel. Cannot play audio.", true);
     }
 
-    // Before scheduling new playback, ensure all previous sources are stopped.
     stopAudio();
 
-    // Schedule playback for each channel and step, if data is available
     Object.entries(projectSequences).forEach(([sequenceName, channels]) => {
         Object.entries(channels).forEach(([channelName, channelData], channelIndex) => {
             const steps = channelData.steps;
             const audioBuffer = audioBuffers[channelIndex];
             const trimSetting = trimSettings[channelIndex];
 
-            if (audioBuffer && steps) { // Check if both audio buffer and steps are available
+            if (audioBuffer && steps) {
                 steps.forEach((active, stepIndex) => {
                     if (active) {
                         schedulePlaybackForStep(audioBuffer, trimSetting, stepIndex);
@@ -107,16 +103,14 @@ const playAudio = async () => {
         });
     });
 
-   // Reset the manual stop flag at the start of each new playback session
-   isStoppedManually = false;
-   customLog("Scheduled playback for active steps in available sequences and channels");
-   // Directly check and handle looping here
-   if (activeSources.size === 0 && isLooping) {
-       customLog('No active sources at start of playAudio, looping is true. Starting playback again.');
-       playAudio();
-   } else {
-       customLog('Active sources remain at the start of playAudio or stop was manual.');
-   }
+    isStoppedManually = false;
+    customLog("Scheduled playback for active steps in available sequences and channels");
+    if (activeSources.size === 0 && isLooping) {
+        customLog('No active sources at start of playAudio, looping is true. Starting playback again.');
+        playAudio();
+    } else {
+        customLog('Active sources remain at the start of playAudio or stop was manual.');
+    }
 };
 
 const stopAudio = () => {
@@ -125,44 +119,49 @@ const stopAudio = () => {
         source.disconnect();
     });
     activeSources.clear();
-    log("All audio playback stopped and sources disconnected");
+    customLog("All audio playback stopped and sources disconnected");
 };
-
 
 const setupUIHandlers = () => {
-    // Play button event listener
-    document.getElementById('playButton').addEventListener('click', () => {
-        isLooping = true; // Re-enable looping when play is pressed
-        log('Play button pressed, attempting to start playback.');
-        playAudio();
-    });
+    // Ensure elements exist before adding event listeners
+    const playButton = document.getElementById('playButton');
+    const stopButton = document.getElementById('stopButton');
+    const fileInput = document.getElementById('fileInput');
 
-    // Stop button event listener
-    document.getElementById('stopButton').addEventListener('click', () => {
-        isStoppedManually = true; // Indicate that stop was triggered manually
-        log('Stop button pressed, calling stopAudio.');
-        stopAudio();
-    });
+    if (playButton) {
+        playButton.addEventListener('click', () => {
+            isLooping = true;
+            customLog('Play button pressed, attempting to start playback.');
+            playAudio();
+        });
+    }
 
-    // File input change event listener
-    document.getElementById('fileInput').addEventListener('change', async (event) => {
-        try {
-            sequenceData = await processAndLoadAudio(event.target.files[0], loadAudioFile);
-            if (sequenceData && sequenceData.projectURLs.some(url => url)) { // Check if there's at least one valid URL
-                document.getElementById('playButton').disabled = false;
-                log("File loaded successfully. Ready to play. Click the play button!");
-            } else {
-                log("No valid audio URLs found in the sequence data.", true);
-                document.getElementById('playButton').disabled = true;
+    if (stopButton) {
+        stopButton.addEventListener('click', () => {
+            isStoppedManually = true;
+            customLog('Stop button pressed, calling stopAudio.');
+            stopAudio();
+        });
+    }
+
+    if (fileInput) {
+        fileInput.addEventListener('change', async (event) => {
+            try {
+                // Assuming processAndLoadAudio is defined elsewhere
+                sequenceData = await processAndLoadAudio(event.target.files[0], loadAudioFile);
+                if (sequenceData && sequenceData.projectURLs.some(url => url)) {
+                    playButton.disabled = false;
+                    customLog("File loaded successfully. Ready to play. Click the play button!");
+                } else {
+                    customLog("No valid audio URLs found in the sequence data.", true);
+                    playButton.disabled = true;
+                }
+            } catch (err) {
+                playButton.disabled = true;
+                customLog(`Error processing sequence data: ${err}`, true);
             }
-        } catch (err) {
-            document.getElementById('playButton').disabled = true;
-            log(`Error processing sequence data: ${err}`, true);
-        }
-    });
+        });
+    }
 };
 
-
-// Initial setup
-checkAudioContextSupport();
 setupUIHandlers();
