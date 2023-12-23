@@ -4,6 +4,8 @@
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 let trimSettings, BPM, sequenceData;
 const activeSources = [];
+let isLooping = true; // Set to true if you want to enable looping by default
+
 
 const checkAudioContextSupport = () => {
     if (!audioContext) {
@@ -42,8 +44,23 @@ const createAndStartAudioSource = (audioBuffer, trimSetting, playbackTime) => {
     source.connect(audioContext.destination);
     const { startTime, duration } = calculateTrimTimes(trimSetting, audioBuffer.duration);
     source.start(audioContext.currentTime + playbackTime, startTime, duration);
+    
+    source.onended = () => handleSourceEnd(source); // New line: Handle the end of each source
     activeSources.push(source); // Keep track of the source for stopping later
-    return source;
+};
+
+// New function to handle the end of a source
+const handleSourceEnd = (source) => {
+    // Remove the source from activeSources
+    const index = activeSources.indexOf(source);
+    if (index > -1) {
+        activeSources.splice(index, 1);
+    }
+    
+    // If all sources have ended and looping is enabled, restart the playback
+    if (activeSources.length === 0 && isLooping) {
+        playAudio();
+    }
 };
 
 const schedulePlaybackForStep = (audioBuffer, trimSetting, stepIndex) => {
