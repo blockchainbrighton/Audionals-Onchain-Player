@@ -16,18 +16,61 @@ const customLog = (message, isError = false) => {
     logFunction(message);
 };
 
+// Function to convert base64 to an array buffer
+function base64ToArrayBuffer(base64) {
+    console.log('base64ToArrayBuffer entered');
+    const binaryString = atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+// Function to decode audio data
+const decodeAudioData = (audioData) => {
+    console.log('decodeAudioData entered');
+    return new Promise((resolve, reject) => {
+        audioContext.decodeAudioData(audioData, resolve, reject);
+    });
+};
+
+// Updated loadAudioFile to handle base64 encoded audio in JSON files
 const loadAudioFile = async (url) => {
+    console.log('loadAudioFile entered...');
     if (!url) {
         customLog('Encountered invalid or missing URL in JSON', true);
         return null;
     }
+
     try {
         const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        // Compatibility check for older browsers
-        return new Promise((resolve, reject) => {
-            audioContext.decodeAudioData(arrayBuffer, resolve, reject);
-        });
+        const contentType = response.headers.get('content-type');
+        let audioData;
+
+        if (contentType.includes('audio/')) {
+            customLog(`Loading direct audio file with type: ${contentType}`);
+            audioData = await response.arrayBuffer();
+        } else if (contentType.includes('application/json')) {
+            customLog(`Loading a JSON file that might contain audio data: ${contentType}`);
+            const jsonData = await response.json();
+            if (jsonData.audioData && typeof jsonData.audioData === 'string') {
+                // Log the base64 audio data
+                console.log('Found base64 audio data:', jsonData.audioData);
+                // Decode base64 to ArrayBuffer
+                audioData = base64ToArrayBuffer(jsonData.audioData.split(',')[1]);
+            } else {
+                customLog('JSON does not contain base64 encoded audio data', true);
+                return null;
+            }
+        } else {
+            customLog(`Unknown content type: ${contentType}`, true);
+            return null;
+        }
+
+        // Decode and return the audio data
+        return await decodeAudioData(audioData);
     } catch (error) {
         customLog(`Error loading audio file: ${error}`, true);
         return null;

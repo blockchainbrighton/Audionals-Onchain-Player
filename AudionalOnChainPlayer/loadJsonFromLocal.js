@@ -16,9 +16,33 @@ const readFileAsJSON = (file) => new Promise((resolve, reject) => {
 });
 
 const analyzeJSONFormat = (data) => {
-    // Implement analysis of JSON structure and content here
     log('Analyzing JSON format and content:', false);
-    // Detailed analysis logic can be implemented here
+
+    // Loop through each URL in the data and analyze its content
+    if (data.projectURLs) {
+        data.projectURLs.forEach(async (url, index) => {
+            if (typeof url === 'string' && url.trim() !== '') {
+                try {
+                    const response = await fetch(url, { method: 'HEAD' }); // Using HEAD to get headers without downloading the whole file
+                    const contentType = response.headers.get('content-type');
+
+                    if (contentType.includes('audio/')) {
+                        log(`URL ${index} is direct audio: ${url} with type ${contentType}`);
+                    } else if (contentType.includes('application/json')) {
+                        log(`URL ${index} is a JSON file that might contain audio data: ${url}`);
+                    } else {
+                        log(`URL ${index} is of unknown type: ${url}`);
+                    }
+                } catch (error) {
+                    log(`Error analyzing URL ${index}: ${url} with error: ${error}`, true);
+                }
+            } else {
+                log(`URL ${index} is invalid or empty`, true);
+            }
+        });
+    } else {
+        log('No projectURLs found in the data to analyze.', true);
+    }
 };
 
 const processAndLoadAudio = async (file, loadAudioFile) => {
