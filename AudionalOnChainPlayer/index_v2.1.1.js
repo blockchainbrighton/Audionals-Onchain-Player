@@ -11,9 +11,9 @@ const checkAudioContextSupport = () => {
     }
 };
 
-const loadAudioFile = async (url, channelIndex) => {
+const loadAudioFile = async (url) => {
     if (!url) {
-        log(`Warning: URL for channel ${channelIndex} is missing or invalid. This channel will not be played.`, true);
+        log('Encountered invalid or missing URL in JSON', true);
         return null; // Return null if the URL is invalid
     }
     try {
@@ -21,7 +21,7 @@ const loadAudioFile = async (url, channelIndex) => {
         const arrayBuffer = await response.arrayBuffer();
         return await audioContext.decodeAudioData(arrayBuffer);
     } catch (error) {
-        log(`Error loading audio file for channel ${channelIndex}: ${error}`, true);
+        log(`Error loading audio file: ${error}`, true);
         return null; // Return null if loading or decoding failed
     }
 };
