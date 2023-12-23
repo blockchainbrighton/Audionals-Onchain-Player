@@ -1,11 +1,10 @@
 // index_v2.1.1.js
 
-
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 let trimSettings, BPM, sequenceData;
 const activeSources = [];
 let isLooping = true; // Set to true if you want to enable looping by default
-
+let isStoppedManually = false; // New variable to track if stop was triggered manually
 
 const checkAudioContextSupport = () => {
     if (!audioContext) {
@@ -45,21 +44,31 @@ const createAndStartAudioSource = (audioBuffer, trimSetting, playbackTime) => {
     const { startTime, duration } = calculateTrimTimes(trimSetting, audioBuffer.duration);
     source.start(audioContext.currentTime + playbackTime, startTime, duration);
     
-    source.onended = () => handleSourceEnd(source); // New line: Handle the end of each source
-    activeSources.push(source); // Keep track of the source for stopping later
+    source.onended = () => {
+        log('Source ended, handling end');
+        handleSourceEnd(source);
+    };
+    activeSources.push(source);
 };
 
 // New function to handle the end of a source
 const handleSourceEnd = (source) => {
-    // Remove the source from activeSources
     const index = activeSources.indexOf(source);
     if (index > -1) {
         activeSources.splice(index, 1);
     }
-    
-    // If all sources have ended and looping is enabled, restart the playback
-    if (activeSources.length === 0 && isLooping) {
-        playAudio();
+
+    log(`Handling source end. Active sources remaining: ${activeSources.length}`);
+    log(`Looping: ${isLooping}, Manually Stopped: ${isStoppedManually}`);
+    if (activeSources.length === 0) {
+        if (isLooping && !isStoppedManually) {
+            log('All sources ended, looping is true. Starting playback again.');
+            playAudio();
+        } else {
+            log('Not restarting playback. Either looping is false or stop was manual.');
+        }
+    } else {
+        log('Not starting playback again. Sources remain.');
     }
 };
 
@@ -86,6 +95,9 @@ const playAudio = async () => {
         return log("No valid audio data available for any channel. Cannot play audio.", true);
     }
 
+    // Before scheduling new playback, ensure all previous sources are stopped.
+    stopAudio();
+
     // Schedule playback for each channel and step, if data is available
     Object.entries(projectSequences).forEach(([sequenceName, channels]) => {
         Object.entries(channels).forEach(([channelName, channelData], channelIndex) => {
@@ -103,10 +115,22 @@ const playAudio = async () => {
         });
     });
 
+    // Reset the manual stop flag at the start of each new playback session
+    isStoppedManually = false;
+
     log("Scheduled playback for active steps in available sequences and channels");
-};
+    // Directly check and handle looping here
+    if (activeSources.length === 0 && isLooping && !isStoppedManually) {
+        log('No active sources at start of playAudio, looping is true. Starting playback again.');
+        playAudio();
+    } else {
+        log('Active sources remain at the start of playAudio or stop was manual.');
+    }
+    };
 
 const stopAudio = () => {
+    // isLooping = false;  // Temporarily disable looping when stop is pressed
+
     activeSources.forEach(source => {
         if (source) {
             source.stop();
@@ -118,14 +142,27 @@ const stopAudio = () => {
 };
 
 const setupUIHandlers = () => {
-    document.getElementById('playButton').addEventListener('click', playAudio);
-    document.getElementById('stopButton').addEventListener('click', stopAudio);
+    // Play button event listener
+    document.getElementById('playButton').addEventListener('click', () => {
+        isLooping = true; // Re-enable looping when play is pressed
+        log('Play button pressed, attempting to start playback.');
+        playAudio();
+    });
+
+    // Stop button event listener
+    document.getElementById('stopButton').addEventListener('click', () => {
+        isStoppedManually = true; // Indicate that stop was triggered manually
+        log('Stop button pressed, calling stopAudio.');
+        stopAudio();
+    });
+
+    // File input change event listener
     document.getElementById('fileInput').addEventListener('change', async (event) => {
         try {
             sequenceData = await processAndLoadAudio(event.target.files[0], loadAudioFile);
             if (sequenceData && sequenceData.projectURLs.some(url => url)) { // Check if there's at least one valid URL
                 document.getElementById('playButton').disabled = false;
-                log("Ready to play. Click the play button!");
+                log("File loaded successfully. Ready to play. Click the play button!");
             } else {
                 log("No valid audio URLs found in the sequence data.", true);
                 document.getElementById('playButton').disabled = true;
@@ -136,6 +173,7 @@ const setupUIHandlers = () => {
         }
     });
 };
+
 
 // Initial setup
 checkAudioContextSupport();
