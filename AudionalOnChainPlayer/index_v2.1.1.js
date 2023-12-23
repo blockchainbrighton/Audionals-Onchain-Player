@@ -2,9 +2,15 @@
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 let trimSettings, BPM, sequenceData;
-const activeSources = [];
-let isLooping = true; // Set to true if you want to enable looping by default
-let isStoppedManually = false; // New variable to track if stop was triggered manually
+const activeSources = new Set();
+let isLooping = true;
+let isStoppedManually = false;
+
+// Renamed to avoid conflicts with any pre-existing 'log' identifiers.
+const customLog = (message, isError = false) => {
+    const logFunction = isError ? console.error : console.log;
+    logFunction(message);
+};
 
 const checkAudioContextSupport = () => {
     if (!audioContext) {
@@ -14,16 +20,16 @@ const checkAudioContextSupport = () => {
 
 const loadAudioFile = async (url) => {
     if (!url) {
-        log('Encountered invalid or missing URL in JSON', true);
-        return null; // Return null if the URL is invalid
+        customLog('Encountered invalid or missing URL in JSON', true);
+        return null;
     }
     try {
         const response = await fetch(url);
         const arrayBuffer = await response.arrayBuffer();
         return await audioContext.decodeAudioData(arrayBuffer);
     } catch (error) {
-        log(`Error loading audio file: ${error}`, true);
-        return null; // Return null if loading or decoding failed
+        customLog(`Error loading audio file: ${error}`, true);
+        return null;
     }
 };
 
@@ -33,47 +39,34 @@ const calculateTrimTimes = (trimSetting, totalDuration) => {
     return { startTime, duration: Math.max(0, endTime - startTime) };
 };
 
-const calculateStepTime = () => 60 / BPM / 4; // One sixteenth of a beat
+const calculateStepTime = () => 60 / BPM / 4;
 
 const createAndStartAudioSource = (audioBuffer, trimSetting, playbackTime) => {
-    if (!audioBuffer) return; // If the audio buffer is null, skip creating the source
+    if (!audioBuffer) return;
 
     const source = audioContext.createBufferSource();
+    const { startTime, duration } = calculateTrimTimes(trimSetting, audioBuffer.duration);
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    const { startTime, duration } = calculateTrimTimes(trimSetting, audioBuffer.duration);
     source.start(audioContext.currentTime + playbackTime, startTime, duration);
-    
-    source.onended = () => {
-        log('Source ended, handling end');
-        handleSourceEnd(source);
-    };
-    activeSources.push(source);
+
+    source.onended = () => handleSourceEnd(source);
+    activeSources.add(source);
 };
 
-// New function to handle the end of a source
 const handleSourceEnd = (source) => {
-    const index = activeSources.indexOf(source);
-    if (index > -1) {
-        activeSources.splice(index, 1);
-    }
-
-    log(`Handling source end. Active sources remaining: ${activeSources.length}`);
-    log(`Looping: ${isLooping}, Manually Stopped: ${isStoppedManually}`);
-    if (activeSources.length === 0) {
-        if (isLooping && !isStoppedManually) {
-            log('All sources ended, looping is true. Starting playback again.');
-            playAudio();
-        } else {
-            log('Not restarting playback. Either looping is false or stop was manual.');
-        }
+    activeSources.delete(source);
+    customLog(`Handling source end. Active sources remaining: ${activeSources.size}`);
+    if (activeSources.size === 0 && isLooping && !isStoppedManually) {
+        customLog('All sources ended, looping is true. Starting playback again.');
+        playAudio();
     } else {
-        log('Not starting playback again. Sources remain.');
+        customLog('Playback finished or stopped manually.');
     }
 };
 
 const schedulePlaybackForStep = (audioBuffer, trimSetting, stepIndex) => {
-    const playbackTime = stepIndex * calculateStepTime();
+  const playbackTime = stepIndex * calculateStepTime();
     createAndStartAudioSource(audioBuffer, trimSetting, playbackTime);
 };
 
@@ -81,7 +74,6 @@ const playAudio = async () => {
     if (!sequenceData || !sequenceData.projectURLs || !sequenceData.projectSequences) {
         return log("No valid sequence data available. Cannot play audio.", true);
     }
-
     const { projectURLs, projectSequences, projectBPM, trimSettings } = sequenceData;
     BPM = projectBPM; // Set global BPM
 
@@ -115,31 +107,27 @@ const playAudio = async () => {
         });
     });
 
-    // Reset the manual stop flag at the start of each new playback session
-    isStoppedManually = false;
-
-    log("Scheduled playback for active steps in available sequences and channels");
-    // Directly check and handle looping here
-    if (activeSources.length === 0 && isLooping && !isStoppedManually) {
-        log('No active sources at start of playAudio, looping is true. Starting playback again.');
-        playAudio();
-    } else {
-        log('Active sources remain at the start of playAudio or stop was manual.');
-    }
-    };
+   // Reset the manual stop flag at the start of each new playback session
+   isStoppedManually = false;
+   customLog("Scheduled playback for active steps in available sequences and channels");
+   // Directly check and handle looping here
+   if (activeSources.size === 0 && isLooping) {
+       customLog('No active sources at start of playAudio, looping is true. Starting playback again.');
+       playAudio();
+   } else {
+       customLog('Active sources remain at the start of playAudio or stop was manual.');
+   }
+};
 
 const stopAudio = () => {
-    // isLooping = false;  // Temporarily disable looping when stop is pressed
-
     activeSources.forEach(source => {
-        if (source) {
-            source.stop();
-            source.disconnect(); // Disconnect the source to free up memory
-        }
+        source.stop();
+        source.disconnect();
     });
-    activeSources.length = 0; // Clear the array of active sources
+    activeSources.clear();
     log("All audio playback stopped and sources disconnected");
 };
+
 
 const setupUIHandlers = () => {
     // Play button event listener
